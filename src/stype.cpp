@@ -9,6 +9,8 @@ using std::string;
 using std::getline;
 #include <fstream>
 using std::ifstream;
+#include <algorithm>
+using std::min;
 
 struct Token {
 	string *source;
@@ -87,6 +89,12 @@ struct Parser {
 	}
 };
 
+void printErrorDiagnostic(string &str, size_t &idx) {
+	size_t cnt = min((size_t)3, idx), spaces = idx - cnt;
+	cerr << str << endl
+		<< string(spaces, ' ') << string(cnt, '~') << '^' << string(3, '~') << endl;
+}
+
 struct AndCombinator : public Parser {
 	AndCombinator(Parser &p1, Parser &p2) : _p1(&p1), _p2(&p2) { }
 	bool parse(string &str, size_t &idx) {
@@ -140,7 +148,9 @@ struct LiteralParser : public Parser {
 			if(str[idx] != _literal[i]) {
 				cout << "literal parse of \"" << _literal << "\" failed at "
 					<< idx << ": "
-					<< str[idx] << " is not " << _literal[i] << endl;
+					<< str[idx] << " is not " << _literal[i] << endl
+					<< "        i: " << i << ", idx: " << idx << endl;
+				printErrorDiagnostic(str, idx);
 				return false;
 			}
 		}
@@ -151,14 +161,38 @@ struct LiteralParser : public Parser {
 		string _literal;
 };
 
+struct KleenePlusParser : public Parser {
+	KleenePlusParser(Parser *parser) : _parser{parser} { }
+	bool parse(string &str, size_t &idx) {
+		size_t i_idx = idx, scount = 0, s_idx = i_idx;
+		while(_parser->parse(str, idx)) {
+			s_idx = idx;
+			scount++;
+		}
+		if(scount == 0) {
+			idx = i_idx;
+			return false;
+		}
+		idx = s_idx;
+		cerr << "kleene success" << endl;
+		return true;
+	}
+	protected:
+		Parser *_parser;
+};
+
 
 Parser *operator|(Parser &p1, Parser &p2);
+Parser *operator|(Parser *p1, Parser &p2);
 Parser *operator+(Parser &p1, Parser &p2);
 Parser *operator+(Parser *p1, Parser &p2);
+Parser *operator+(Parser &p1, Parser *p2);
 
 Parser *operator|(Parser &p1, Parser &p2) { return new OrCombinator(p1, p2); }
+Parser *operator|(Parser *p1, Parser &p2) { return new OrCombinator(*p1, p2); }
 Parser *operator+(Parser &p1, Parser &p2) { return new AndCombinator(p1, p2); }
 Parser *operator+(Parser *p1, Parser &p2) { return new AndCombinator(*p1, p2); }
+Parser *operator+(Parser &p1, Parser *p2) { return new AndCombinator(p1, *p2); }
 
 
 
@@ -193,11 +227,27 @@ bool AtomParser::parse(string &str, size_t &idx) {
 	return true;
 }
 
+AtomParser CharacterRangeParser(char a, char b) {
+	string s;
+	for(char i = a; i <= b; i++)
+		s += i;
+	cerr << "CharacterRangeParser('" << a << "', '" << b << "'): " << s << endl;
+	return AtomParser(s);
+}
+
 void parser();
 void parser() {
+	auto lowerAtom = CharacterRangeParser('a', 'z');
+	auto upperAtom = CharacterRangeParser('A', 'Z');
+	auto digitAtom = CharacterRangeParser('0', '9');
+	auto spaceAtom = AtomParser(" \t\r\n");
+	auto specialAtom = AtomParser(",!");
+	auto graphAtom = lowerAtom | upperAtom | digitAtom | spaceAtom | specialAtom;
+	auto escapedDoubleQuote = LiteralParser("\\\"");
+	auto escapedBackslash = LiteralParser("\\\\");
 	auto quot = LiteralParser("\"");
 	auto semicolon = LiteralParser(";");
-	auto stringContent = AtomParser("Helo, wrd!");
+	auto stringContent = KleenePlusParser(graphAtom | escapedDoubleQuote | escapedBackslash);
 	auto stringLiteral = quot + stringContent + quot;
 	auto literal = stringLiteral;
 	auto expression = literal;
