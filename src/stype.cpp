@@ -87,6 +87,8 @@ struct Parser {
 		cout << "idx: " << idx << endl;
 		return s;
 	}
+
+	string name;
 };
 
 void printErrorDiagnostic(string &str, size_t &idx) {
@@ -235,9 +237,12 @@ AtomParser CharacterRangeParser(char a, char b) {
 	return AtomParser(s);
 }
 
+#define atom(x, y) auto x = y; x.name = #x ;
+
 void parser();
 void parser() {
-	auto lowerAtom = CharacterRangeParser('a', 'z');
+	atom(lowerAtom, CharacterRangeParser('a', 'z'));
+	//auto lowerAtom = CharacterRangeParser('a', 'z');
 	auto upperAtom = CharacterRangeParser('A', 'Z');
 	auto digitAtom = CharacterRangeParser('0', '9');
 	auto spaceAtom = AtomParser(" \t\r\n");
@@ -253,7 +258,7 @@ void parser() {
 	auto expression = literal;
 	auto statement = expression + semicolon;
 
-	statement->parse("\"Hello, world!\";");
+	statement->parse("\"Hello, \\\"worlD!\\\"\";");
 }
 
 int main(int argc, char **argv) {
