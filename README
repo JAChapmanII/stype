@@ -1,0 +1,19 @@
+This is the very basic start to a toy language that allows you to create types
+from intersecting two other types. The parser is very immature and the
+language syntax itself is likely to change.
+
+The goal is to have a dummy parser and interpreter setup to at least run
+simple functions involving arithmetic, iteration, type creation and
+intersection, and printing to stdout.
+
+Examples of the current syntax can be found in ex/ . zero.st, one.st, etc
+build up a progressively more complete example. hello.st is a hello world
+program.
+
+
+FAQ
+===
+
+Why would you want to intersect types?
+	You probably don't.
+
