@@ -79,17 +79,21 @@ vector<string> tokenize(string text) {
 
 struct Parser {
 	virtual ~Parser() { }
-	virtual bool parse(string &str, size_t &idx) = 0;
-	bool parse(string str) {
+	virtual bool parse(string &str, size_t &idx, bool printFailure = true) = 0;
+
+	bool parse(string str, bool printFailure = true) {
 		size_t idx = 0;
-		bool s = parse(str, idx);
+		bool s = parse(str, idx, printFailure);
 		cout << "success: " << s << endl;
 		cout << "idx: " << idx << endl;
 		return s;
 	}
 
-	string name;
+	string name{"{null}"};
 };
+
+// print pretty error squigly
+void printErrorDiagnostic(string &str, size_t &idx);
 
 void printErrorDiagnostic(string &str, size_t &idx) {
 	size_t cnt = min((size_t)3, idx), spaces = idx - cnt;
@@ -99,14 +103,14 @@ void printErrorDiagnostic(string &str, size_t &idx) {
 
 struct AndCombinator : public Parser {
 	AndCombinator(Parser &p1, Parser &p2) : _p1(&p1), _p2(&p2) { }
-	bool parse(string &str, size_t &idx) {
+	bool parse(string &str, size_t &idx, bool printFailure = true) {
 		size_t i_idx = idx;
-		bool p1Success = _p1->parse(str, idx);
+		bool p1Success = _p1->parse(str, idx, printFailure);
 		if(!p1Success) {
 			idx = i_idx;
 			return false;
 		}
-		bool p2Success = _p2->parse(str, idx);
+		bool p2Success = _p2->parse(str, idx, printFailure);
 		if(!p2Success) {
 			idx = i_idx;
 			return false;
@@ -120,14 +124,24 @@ struct AndCombinator : public Parser {
 };
 struct OrCombinator : public Parser {
 	OrCombinator(Parser &p1, Parser &p2) : _p1(&p1), _p2(&p2) { }
-	bool parse(string &str, size_t &idx) {
+	bool parse(string &str, size_t &idx, bool printFailure = true) {
 		size_t i_idx = idx;
-		bool p1Success = _p1->parse(str, idx);
+		bool p1Success = _p1->parse(str, idx, false);
 		if(p1Success) { return true; }
 		idx = i_idx; // rewind
-		bool p2Success = _p2->parse(str, idx);
+		bool p2Success = _p2->parse(str, idx, false);
 		if(p2Success) { return true; }
+
 		idx = i_idx; // rewind
+
+		// we have failed, if we should have printed our failure rerun with
+		// print enabled
+		if(printFailure) {
+			size_t a_idx = idx, b_idx = idx;
+			_p1->parse(str, a_idx, printFailure);
+			_p2->parse(str, b_idx, printFailure);
+		}
+
 		return false;
 	}
 
@@ -138,21 +152,24 @@ struct OrCombinator : public Parser {
 
 struct LiteralParser : public Parser {
 	LiteralParser(string literal) : _literal(literal) { }
-	bool parse(string &str, size_t &idx) {
+	bool parse(string &str, size_t &idx, bool printFailure = true) {
 		if(_literal.size() <= 0)
 			return true;
 		if(idx + _literal.size() - 1 >= str.size()) {
-			cout << "literal parse of \"" << _literal << "\" failed at "
-				<< idx << " not long enough" << endl;
+			if(printFailure)
+				cout << "literal parse of \"" << _literal << "\" failed at "
+					<< idx << " not long enough" << endl;
 			return false;
 		}
 		for(size_t i = 0; i < _literal.size(); ++i, ++idx) {
 			if(str[idx] != _literal[i]) {
-				cout << "literal parse of \"" << _literal << "\" failed at "
-					<< idx << ": "
-					<< str[idx] << " is not " << _literal[i] << endl
-					<< "        i: " << i << ", idx: " << idx << endl;
-				printErrorDiagnostic(str, idx);
+				if(printFailure) {
+					cout << "literal parse of \"" << _literal << "\" failed at "
+						<< idx << ": "
+						<< str[idx] << " is not " << _literal[i] << endl
+						<< "        i: " << i << ", idx: " << idx << endl;
+					printErrorDiagnostic(str, idx);
+				}
 				return false;
 			}
 		}
@@ -165,14 +182,18 @@ struct LiteralParser : public Parser {
 
 struct KleenePlusParser : public Parser {
 	KleenePlusParser(Parser *parser) : _parser{parser} { }
-	bool parse(string &str, size_t &idx) {
+	bool parse(string &str, size_t &idx, bool printFailure = true) {
 		size_t i_idx = idx, scount = 0, s_idx = i_idx;
-		while(_parser->parse(str, idx)) {
+		while(_parser->parse(str, idx, false)) {
 			s_idx = idx;
 			scount++;
 		}
 		if(scount == 0) {
-			idx = i_idx;
+			idx = i_idx; // rewind
+			if(printFailure) {
+				size_t a_idx = idx;
+				_parser->parse(str, a_idx, printFailure);
+			}
 			return false;
 		}
 		idx = s_idx;
@@ -201,7 +222,7 @@ Parser *operator+(Parser &p1, Parser *p2) { return new AndCombinator(p1, *p2); }
 struct AtomParser : public Parser {
 	AtomParser(string pseudoRegex);
 	// how to yield token?... return Token*?
-	bool parse(string &str, size_t &idx);
+	bool parse(string &str, size_t &idx, bool printFailure = true);
 
 	private:
 		string _pseudoRegex;
@@ -217,7 +238,7 @@ inline void ignoreWhitespace(string &str, size_t &idx) {
 
 AtomParser::AtomParser(string pseudoRegex)
 		: Parser(), _pseudoRegex(pseudoRegex) { }
-bool AtomParser::parse(string &str, size_t &idx) {
+bool AtomParser::parse(string &str, size_t &idx, bool printFailure) {
 	//ignoreWhitespace(str, idx);
 	if(_pseudoRegex.find_first_of(str[idx]) == string::npos)
 		return false;
@@ -259,6 +280,7 @@ void parser() {
 	auto statement = expression + semicolon;
 
 	statement->parse("\"Hello, \\\"worlD!\\\"\";");
+	statement->parse("\"Hello, \\\"worlD?\\\"\";");
 }
 
 int main(int argc, char **argv) {
