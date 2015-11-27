@@ -81,11 +81,16 @@ struct Parser {
 	virtual ~Parser() { }
 	virtual bool parse(string &str, size_t &idx, bool printFailure = true) = 0;
 
+	virtual void success(string &str, size_t sidx, size_t eidx) {
+		if(name == "{null}")
+			return;
+
+		cout << name << ": '" << str.substr(sidx, eidx - sidx) << "'" << endl;
+	}
+
 	bool parse(string str, bool printFailure = true) {
 		size_t idx = 0;
 		bool s = parse(str, idx, printFailure);
-		cout << "success: " << s << endl;
-		cout << "idx: " << idx << endl;
 		return s;
 	}
 
@@ -115,6 +120,7 @@ struct AndCombinator : public Parser {
 			idx = i_idx;
 			return false;
 		}
+		success(str, i_idx, idx);
 		return true;
 	}
 
@@ -127,10 +133,16 @@ struct OrCombinator : public Parser {
 	bool parse(string &str, size_t &idx, bool printFailure = true) {
 		size_t i_idx = idx;
 		bool p1Success = _p1->parse(str, idx, false);
-		if(p1Success) { return true; }
+		if(p1Success) {
+			success(str, i_idx, idx);
+			return true;
+		}
 		idx = i_idx; // rewind
 		bool p2Success = _p2->parse(str, idx, false);
-		if(p2Success) { return true; }
+		if(p2Success) {
+			success(str, i_idx, idx);
+			return true;
+		}
 
 		idx = i_idx; // rewind
 
@@ -153,6 +165,7 @@ struct OrCombinator : public Parser {
 struct LiteralParser : public Parser {
 	LiteralParser(string literal) : _literal(literal) { }
 	bool parse(string &str, size_t &idx, bool printFailure = true) {
+		size_t i_idx = idx; // TODO: does this not rollback?
 		if(_literal.size() <= 0)
 			return true;
 		if(idx + _literal.size() - 1 >= str.size()) {
@@ -173,6 +186,7 @@ struct LiteralParser : public Parser {
 				return false;
 			}
 		}
+		success(str, i_idx, idx);
 		return true;
 	}
 
@@ -197,7 +211,7 @@ struct KleenePlusParser : public Parser {
 			return false;
 		}
 		idx = s_idx;
-		cerr << "kleene success" << endl;
+		success(str, i_idx, idx);
 		return true;
 	}
 	protected:
@@ -239,6 +253,7 @@ inline void ignoreWhitespace(string &str, size_t &idx) {
 AtomParser::AtomParser(string pseudoRegex)
 		: Parser(), _pseudoRegex(pseudoRegex) { }
 bool AtomParser::parse(string &str, size_t &idx, bool printFailure) {
+	size_t i_idx = idx;
 	//ignoreWhitespace(str, idx);
 	if(_pseudoRegex.find_first_of(str[idx]) == string::npos)
 		return false;
@@ -246,7 +261,7 @@ bool AtomParser::parse(string &str, size_t &idx, bool printFailure) {
 	while(idx < str.size() && _pseudoRegex.find_first_of(str[idx]) != string::npos) {
 		atom += str[idx++];
 	}
-	cout << "atom: " << atom << endl;
+	success(str, i_idx, idx);
 	return true;
 }
 
@@ -258,12 +273,11 @@ AtomParser CharacterRangeParser(char a, char b) {
 	return AtomParser(s);
 }
 
-#define atom(x, y) auto x = y; x.name = #x ;
+#define atom(x, y) auto x = y; x->name = #x ;
 
 void parser();
 void parser() {
-	atom(lowerAtom, CharacterRangeParser('a', 'z'));
-	//auto lowerAtom = CharacterRangeParser('a', 'z');
+	auto lowerAtom = CharacterRangeParser('a', 'z');
 	auto upperAtom = CharacterRangeParser('A', 'Z');
 	auto digitAtom = CharacterRangeParser('0', '9');
 	auto spaceAtom = AtomParser(" \t\r\n");
@@ -274,13 +288,19 @@ void parser() {
 	auto quot = LiteralParser("\"");
 	auto semicolon = LiteralParser(";");
 	auto stringContent = KleenePlusParser(graphAtom | escapedDoubleQuote | escapedBackslash);
-	auto stringLiteral = quot + stringContent + quot;
+	atom(stringLiteral, quot + stringContent + quot);
 	auto literal = stringLiteral;
 	auto expression = literal;
 	auto statement = expression + semicolon;
 
-	statement->parse("\"Hello, \\\"worlD!\\\"\";");
-	statement->parse("\"Hello, \\\"worlD?\\\"\";");
+	vector<string> tests{
+		"\"Hello, \\\"worlD!\\\"\";",
+		"\"Hello, \\\"worlD?\\\"\";",
+	};
+	for(auto &test : tests) {
+		cout << "=== Test case: " << test << endl;
+		statement->parse(test);
+	}
 }
 
 int main(int argc, char **argv) {
